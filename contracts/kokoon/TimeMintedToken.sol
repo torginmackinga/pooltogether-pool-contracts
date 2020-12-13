@@ -2,19 +2,19 @@
 
 pragma solidity >=0.6.0 <0.7.0;
 
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20Capped.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20CappedUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/ERC20Upgradeable.sol";
 
 
-import "@openzeppelin/contracts-ethereum-package/contracts/utils/SafeCast.sol";
+import "@openzeppelin/contracts-upgradeable/utils/SafeCastUpgradeable.sol";
 
 import "../utils/ExtendedSafeCast.sol";
 import "@pooltogether/fixed-point/contracts/FixedPoint.sol";
 /// @title Time Minted ERC20 Token
 /// @notice ERC20 Tokens that are minted at a rate per second, up to a cap, to a specified address
-contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
-  using SafeMath for uint256;
-  using SafeCast for uint256;
+contract TimeMintedToken is ERC20Upgradeable, ERC20CappedUpgradeable {
+  using SafeMathUpgradeable for uint256;
+  using SafeCastUpgradeable for uint256;
   using ExtendedSafeCast for uint256;
 
   address private _mintToAddress;
@@ -30,6 +30,25 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
     uint32 newDripRatePerSecond
   );
 
+function initialize(string memory name_, 
+  string memory symbol_, 
+  uint256 cap_,
+  address mintToAddress_,
+  uint32 dripRatePerSecond_,
+  uint256 rateAdjustmentNumerator_,
+  uint256 rateAdjustmentDenominator_,
+  uint32 rateAdjustmentThreshold_
+  ) initializer public{
+  __TimeMintedToken_init(
+    name_,
+    symbol_,
+    cap_,
+    mintToAddress_,
+    dripRatePerSecond_,
+    rateAdjustmentNumerator_,
+    rateAdjustmentDenominator_,
+    rateAdjustmentThreshold_);
+}
 
   ///@notice Initializes the name, symbol, cap and mintToAddress of the token.
   function __TimeMintedToken_init (
@@ -43,8 +62,8 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
   uint32 rateAdjustmentThreshold_
   ) 
   internal initializer {
-  __ERC20_init(name_,symbol_);
-  __ERC20Capped_init(cap_) ;
+  __ERC20_init_unchained(name_,symbol_);
+  __ERC20Capped_init_unchained(cap_) ;
 
   _mintToAddress = mintToAddress_;
   _dripRatePerSecond = dripRatePerSecond_;
@@ -79,7 +98,7 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
   function mint() external {
     uint256 currentTime = _currentTime();
     //is explicitly calling the super contracts good practice?
-    _mint(_mintToAddress, _drip(currentTime, ERC20CappedUpgradeSafe.cap().sub(ERC20UpgradeSafe.totalSupply())));
+    _mint(_mintToAddress, _drip(currentTime, ERC20CappedUpgradeable.cap().sub(ERC20Upgradeable.totalSupply())));
   }
 
   
@@ -124,12 +143,12 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
     return block.timestamp;
   }
 
-  function _mint(address account, uint256 amount) internal virtual override(ERC20UpgradeSafe) {
+  function _mint(address account, uint256 amount) internal virtual override(ERC20Upgradeable) {
         _totalMinted = _totalMinted.add(amount);
-        ERC20UpgradeSafe._mint(account,amount);
+        ERC20Upgradeable._mint(account,amount);
     }
 
-  function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override(ERC20CappedUpgradeSafe,ERC20UpgradeSafe) {
-        ERC20CappedUpgradeSafe._beforeTokenTransfer(from, to, amount);
+  function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override(ERC20CappedUpgradeable,ERC20Upgradeable) {
+        ERC20CappedUpgradeable._beforeTokenTransfer(from, to, amount);
   }
 }
