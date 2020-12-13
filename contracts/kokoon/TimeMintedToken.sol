@@ -22,7 +22,7 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
   uint32 private _dripRatePerSecond;
   uint256 private _totalMinted;
   uint256 private _rateAdjustment;
-  uint256 private _rateAdjustmentThreshold;
+  uint32 private _rateAdjustmentThreshold;
 
   ///@notice when the dripRate is changed
   event DripRateChanged(
@@ -40,7 +40,7 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
   uint32 dripRatePerSecond_,
   uint256 rateAdjustmentNumerator_,
   uint256 rateAdjustmentDenominator_,
-  uint256 rateAdjustmentThreshold_
+  uint32 rateAdjustmentThreshold_
   ) 
   internal initializer {
   __ERC20_init(name_,symbol_);
@@ -64,7 +64,7 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
     return _dripRatePerSecond;
   }
 
-  function timeStamp() external view returns (uint32){
+  function timestamp() external view returns (uint32){
     return _timestamp;
   }
 
@@ -72,6 +72,9 @@ contract TimeMintedToken is ERC20UpgradeSafe, ERC20CappedUpgradeSafe {
     return _totalMinted;
   }
 
+  function rateAdjustmentThreshold() external view returns (uint32){
+    return _rateAdjustmentThreshold;
+  }
   /// @notice Mints all available Tokens and sends them to the mintToAddress
   function mint() external {
     uint256 currentTime = _currentTime();
