@@ -12,7 +12,6 @@ contract ControlledTokenBuilder {
   event CreatedControlledToken(address indexed token);
   event CreatedTicket(address indexed token);
 
-  address public trustedForwarder;
   ControlledTokenProxyFactory public controlledTokenProxyFactory;
   TicketProxyFactory public ticketProxyFactory;
 
@@ -24,14 +23,12 @@ contract ControlledTokenBuilder {
   }
 
   constructor (
-    address _trustedForwarder,
     ControlledTokenProxyFactory _controlledTokenProxyFactory,
     TicketProxyFactory _ticketProxyFactory
   ) public {
     require(address(_controlledTokenProxyFactory) != address(0), "ControlledTokenBuilder/controlledTokenProxyFactory-not-zero");
     require(address(_ticketProxyFactory) != address(0), "ControlledTokenBuilder/ticketProxyFactory-not-zero");
     controlledTokenProxyFactory = _controlledTokenProxyFactory;
-    trustedForwarder = _trustedForwarder;
     ticketProxyFactory = _ticketProxyFactory;
   }
 
@@ -44,7 +41,6 @@ contract ControlledTokenBuilder {
       config.name,
       config.symbol,
       config.decimals,
-      trustedForwarder,
       config.controller
     );
 
@@ -62,7 +58,6 @@ contract ControlledTokenBuilder {
       config.name,
       config.symbol,
       config.decimals,
-      trustedForwarder,
       config.controller
     );
 

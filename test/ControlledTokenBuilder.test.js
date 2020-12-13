@@ -6,7 +6,7 @@ const { AddressZero } = ethers.constants
 const { deployMockContract } = require('./helpers/deployMockContract')
 const TokenControllerInterface = require('../build/TokenControllerInterface.json')
 
-const debug = require('debug')('ptv3:SingleRandomWinnerBuilder.test')
+const debug = require('debug')('ptv3:ControlledTokenBuilder.test')
 
 describe('ControlledTokenBuilder', () => {
 
@@ -27,7 +27,6 @@ describe('ControlledTokenBuilder', () => {
       wallet
     )
 
-    trustedForwarder = (await deployments.get("TrustedForwarder"))
     controlledTokenProxyFactory = (await deployments.get("ControlledTokenProxyFactory"))
     ticketProxyFactory = (await deployments.get("TicketProxyFactory"))
 
@@ -43,7 +42,6 @@ describe('ControlledTokenBuilder', () => {
 
   describe('initialize()', () => {
     it('should setup all factories', async () => {
-      expect(await controlledTokenBuilder.trustedForwarder()).to.equal(trustedForwarder.address)
       expect(await controlledTokenBuilder.controlledTokenProxyFactory()).to.equal(controlledTokenProxyFactory.address)
       expect(await controlledTokenBuilder.ticketProxyFactory()).to.equal(ticketProxyFactory.address)
     })
@@ -81,13 +79,13 @@ describe('ControlledTokenBuilder', () => {
       let events = await getEvents(tx)
       let event = events.find(e => e.name == 'CreatedTicket')
 
-      const controlledToken = await buidler.ethers.getContractAt('Ticket', event.args.token, wallet)
-      expect(await controlledToken.name()).to.equal(controlledTokenConfig.name)
-      expect(await controlledToken.symbol()).to.equal(controlledTokenConfig.symbol)
-      expect(await controlledToken.decimals()).to.equal(controlledTokenConfig.decimals)
-      expect(await controlledToken.controller()).to.equal(controlledTokenConfig.controller)
+      const ticket = await buidler.ethers.getContractAt('Ticket', event.args.token, wallet)
+      expect(await ticket.name()).to.equal(controlledTokenConfig.name)
+      expect(await ticket.symbol()).to.equal(controlledTokenConfig.symbol)
+      expect(await ticket.decimals()).to.equal(controlledTokenConfig.decimals)
+      expect(await ticket.controller()).to.equal(controlledTokenConfig.controller)
 
-      expect(await controlledToken.draw('0')).to.equal(AddressZero)
+      expect(await ticket.draw('0')).to.equal(AddressZero)
     })
   })
 })

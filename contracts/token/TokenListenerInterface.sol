@@ -2,8 +2,10 @@
 
 pragma solidity >=0.5.0 <0.7.0;
 
+import "@openzeppelin/contracts-upgradeable/introspection/IERC165Upgradeable.sol";
+
 /// @title An interface that allows a contract to listen to token mint, transfer and burn events.
-interface TokenListenerInterface {
+interface TokenListenerInterface is IERC165Upgradeable {
   /// @notice Called when tokens are minted.
   /// @param to The address of the receiver of the minted tokens.
   /// @param amount The amount of tokens being minted

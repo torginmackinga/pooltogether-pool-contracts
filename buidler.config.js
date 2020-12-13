@@ -49,11 +49,11 @@ const config = {
     deployer: {
       default: 0
     },
-    trustedForwarder: {
-      42: '0x0842Ad6B8cb64364761C7c170D0002CC56b1c498',
-      4: '0x956868751Cc565507B3B58E53a6f9f41B56bed74',
-      3: '0x25CEd1955423BA34332Ec1B60154967750a0297D',
-      1: '0xa530F85085C6FE2f866E7FdB716849714a89f4CD'
+    comptroller: {
+      1: '0x4027dE966127af5F015Ea1cfd6293a3583892668'
+    },
+    reserveRegistry: {
+      1: '0x3e8b9901dBFE766d3FE44B36c180A1bca2B9A295'
     },
     rng: {
       42: RNGBlockhashKovan.address,
@@ -88,6 +88,9 @@ const config = {
     // Your API key for Etherscan
     // Obtain one at https://etherscan.io/
     apiKey: process.env.ETHERSCAN_API_KEY
+  },
+  mocha: {
+    timeout: 30000
   }
 };
 

@@ -2,10 +2,11 @@ const { deployContract } = require('ethereum-waffle')
 const { deployMockContract } = require('./helpers/deployMockContract')
 const CompoundPrizePoolHarness = require('../build/CompoundPrizePoolHarness.json')
 const TokenListenerInterface = require('../build/TokenListenerInterface.json')
+const RegistryInterface = require('../build/RegistryInterface.json')
 const ControlledToken = require('../build/ControlledToken.json')
 const CTokenInterface = require('../build/CTokenInterface.json')
-const IERC20 = require('../build/IERC20.json')
-const IERC721 = require('../build/IERC721.json')
+const IERC20 = require('../build/IERC20Upgradeable.json')
+const IERC721 = require('../build/IERC721Upgradeable.json')
 
 const { ethers } = require('ethers')
 const { expect } = require('chai')
@@ -17,12 +18,10 @@ const debug = require('debug')('ptv3:PrizePool.test')
 
 let overrides = { gasLimit: 20000000 }
 
-const FORWARDER = '0x5f48a3371df0F8077EC741Cc2eB31c84a4Ce332a'
-
 describe('CompoundPrizePool', function() {
   let wallet, wallet2
 
-  let prizePool, erc20token, erc721token, cToken, prizeStrategy, comptroller
+  let prizePool, erc20token, erc721token, cToken, prizeStrategy, registry
 
   let poolMaxExitFee = toWei('0.5')
   let poolMaxTimelockDuration = 10000
@@ -42,7 +41,11 @@ describe('CompoundPrizePool', function() {
     await cToken.mock.underlying.returns(erc20token.address)
 
     prizeStrategy = await deployMockContract(wallet, TokenListenerInterface.abi, overrides)
-    comptroller = await deployMockContract(wallet, TokenListenerInterface.abi, overrides)
+
+    await prizeStrategy.mock.supportsInterface.returns(true)
+    await prizeStrategy.mock.supportsInterface.withArgs('0xffffffff').returns(false)
+
+    registry = await deployMockContract(wallet, RegistryInterface.abi, overrides)
 
     debug('deploying CompoundPrizePoolHarness...')
     prizePool = await deployContract(wallet, CompoundPrizePoolHarness, [], overrides)
@@ -50,9 +53,8 @@ describe('CompoundPrizePool', function() {
     ticket = await deployMockContract(wallet, ControlledToken.abi, overrides)
     await ticket.mock.controller.returns(prizePool.address)
 
-    initializeTxPromise = prizePool['initialize(address,address,address[],uint256,uint256,address)'](
-      FORWARDER,
-      comptroller.address,
+    initializeTxPromise = prizePool['initialize(address,address[],uint256,uint256,address)'](
+      registry.address,
       [ticket.address],
       poolMaxExitFee,
       poolMaxTimelockDuration,

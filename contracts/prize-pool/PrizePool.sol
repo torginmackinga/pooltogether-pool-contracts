@@ -2,35 +2,36 @@
 
 pragma solidity >=0.6.0 <0.7.0;
 
-import "@openzeppelin/contracts-ethereum-package/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/utils/SafeCast.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/utils/ReentrancyGuard.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC721/IERC721.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/SafeERC20.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/SafeCastUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/ReentrancyGuardUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC721/IERC721Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/introspection/ERC165CheckerUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/SafeERC20Upgradeable.sol";
 
-import "../external/pooltogether/FixedPoint.sol";
+import "@pooltogether/fixed-point/contracts/FixedPoint.sol";
 import "../registry/RegistryInterface.sol";
 import "../reserve/ReserveInterface.sol";
 import "./YieldSource.sol";
 import "../token/TokenListenerInterface.sol";
+import "../token/TokenListenerLibrary.sol";
 import "../token/ControlledToken.sol";
 import "../token/TokenControllerInterface.sol";
 import "../utils/MappedSinglyLinkedList.sol";
-import "../utils/RelayRecipient.sol";
 import "./PrizePoolInterface.sol";
 
 /// @title Escrows assets and deposits them into a yield source.  Exposes interest to Prize Strategy.  Users deposit and withdraw from this contract to participate in Prize Pool.
 /// @notice Accounting is managed using Controlled Tokens, whose mint and burn functions can only be called by this contract.
 /// @dev Must be inherited to provide specific yield-bearing asset control, such as Compound cTokens
-abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSafe, RelayRecipient, ReentrancyGuardUpgradeSafe, TokenControllerInterface {
-  using SafeMath for uint256;
-  using SafeCast for uint256;
-  using SafeERC20 for IERC20;
+abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeable, ReentrancyGuardUpgradeable, TokenControllerInterface {
+  using SafeMathUpgradeable for uint256;
+  using SafeCastUpgradeable for uint256;
+  using SafeERC20Upgradeable for IERC20Upgradeable;
   using MappedSinglyLinkedList for MappedSinglyLinkedList.Mapping;
+  using ERC165CheckerUpgradeable for address;
 
   /// @dev Emitted when an instance is initialized
   event Initialized(
-    address trustedForwarder,
     address reserveRegistry,
     uint256 maxExitFeeMantissa,
     uint256 maxTimelockDuration
@@ -38,7 +39,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
 
   /// @dev Event emitted when controlled token is added
   event ControlledTokenAdded(
-    address indexed token
+    ControlledTokenInterface indexed token
   );
 
   /// @dev Emitted when reserve is captured.
@@ -204,20 +205,18 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   mapping(address => uint256) internal _unlockTimestamps;
 
   /// @dev Stores the credit plan for each token.
-  mapping(address => CreditPlan) internal tokenCreditPlans;
+  mapping(address => CreditPlan) internal _tokenCreditPlans;
 
   /// @dev Stores each users balance of credit per token.
-  mapping(address => mapping(address => CreditBalance)) internal tokenCreditBalances;
+  mapping(address => mapping(address => CreditBalance)) internal _tokenCreditBalances;
 
   /// @notice Initializes the Prize Pool
-  /// @param _trustedForwarder Address of the Forwarding Contract for GSN Meta-Txs
   /// @param _controlledTokens Array of ControlledTokens that are controlled by this Prize Pool.
   /// @param _maxExitFeeMantissa The maximum exit fee size
   /// @param _maxTimelockDuration The maximum length of time the withdraw timelock
   function initialize (
-    address _trustedForwarder,
     RegistryInterface _reserveRegistry,
-    address[] memory _controlledTokens,
+    ControlledTokenInterface[] memory _controlledTokens,
     uint256 _maxExitFeeMantissa,
     uint256 _maxTimelockDuration
   )
@@ -225,7 +224,6 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     initializer
   {
     require(address(_reserveRegistry) != address(0), "PrizePool/reserveRegistry-not-zero");
-    require(_trustedForwarder != address(0), "PrizePool/forwarder-not-zero");
     _tokens.initialize();
     for (uint256 i = 0; i < _controlledTokens.length; i++) {
       _addControlledToken(_controlledTokens[i]);
@@ -234,13 +232,11 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     __ReentrancyGuard_init();
     _setLiquidityCap(uint256(-1));
 
-    trustedForwarder = _trustedForwarder;
     reserveRegistry = _reserveRegistry;
     maxExitFeeMantissa = _maxExitFeeMantissa;
     maxTimelockDuration = _maxTimelockDuration;
 
     emit Initialized(
-      _trustedForwarder,
       address(_reserveRegistry),
       maxExitFeeMantissa,
       maxTimelockDuration
@@ -421,15 +417,19 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   /// @param amount The amount of tokens being trasferred
   function beforeTokenTransfer(address from, address to, uint256 amount) external override onlyControlledToken(msg.sender) {
     if (from != address(0)) {
-      uint256 fromBeforeBalance = IERC20(msg.sender).balanceOf(from);
+      uint256 fromBeforeBalance = IERC20Upgradeable(msg.sender).balanceOf(from);
       // first accrue credit for their old balance
       uint256 newCreditBalance = _calculateCreditBalance(from, msg.sender, fromBeforeBalance, 0);
-      // now limit their credit based on the new balance
-      newCreditBalance = _applyCreditLimit(msg.sender, fromBeforeBalance.sub(amount), newCreditBalance);
+
+      if (from != to) {
+        // if they are sending funds to someone else, we need to limit their accrued credit to their new balance
+        newCreditBalance = _applyCreditLimit(msg.sender, fromBeforeBalance.sub(amount), newCreditBalance);
+      }
+
       _updateCreditBalance(from, msg.sender, newCreditBalance);
     }
-    if (to != address(0)) {
-      _accrueCredit(to, msg.sender, IERC20(msg.sender).balanceOf(to), 0);
+    if (to != address(0) && to != from) {
+      _accrueCredit(to, msg.sender, IERC20Upgradeable(msg.sender).balanceOf(to), 0);
     }
     // if we aren't minting
     if (from != address(0) && address(prizeStrategy) != address(0)) {
@@ -507,7 +507,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     _mint(to, amount, controlledToken, address(0));
 
     uint256 extraCredit = _calculateEarlyExitFeeNoCredit(controlledToken, amount);
-    _accrueCredit(to, controlledToken, IERC20(controlledToken).balanceOf(to), extraCredit);
+    _accrueCredit(to, controlledToken, IERC20Upgradeable(controlledToken).balanceOf(to), extraCredit);
 
     emit Awarded(to, controlledToken, amount);
   }
@@ -562,7 +562,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
       return false;
     }
 
-    IERC20(externalToken).safeTransfer(to, amount);
+    IERC20Upgradeable(externalToken).safeTransfer(to, amount);
 
     return true;
   }
@@ -599,7 +599,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     }
 
     for (uint256 i = 0; i < tokenIds.length; i++) {
-      IERC721(externalToken).transferFrom(address(this), to, tokenIds[i]);
+      IERC721Upgradeable(externalToken).transferFrom(address(this), to, tokenIds[i]);
     }
 
     emit AwardedExternalERC721(to, externalToken, tokenIds);
@@ -667,7 +667,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
 
     uint256 redeemed = _redeem(totalWithdrawal);
 
-    IERC20 underlyingToken = IERC20(_token());
+    IERC20Upgradeable underlyingToken = IERC20Upgradeable(_token());
 
     for (i = 0; i < users.length; i++) {
       if (balances[i] > 0) {
@@ -752,7 +752,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   function _calculateEarlyExitFeeNoCredit(address controlledToken, uint256 amount) internal view returns (uint256) {
     return _limitExitFee(
       amount,
-      FixedPoint.multiplyUintByMantissa(amount, tokenCreditPlans[controlledToken].creditLimitMantissa)
+      FixedPoint.multiplyUintByMantissa(amount, _tokenCreditPlans[controlledToken].creditLimitMantissa)
     );
   }
 
@@ -791,7 +791,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   {
     // interest = credit rate * principal * time
     // => time = interest / (credit rate * principal)
-    uint256 accruedPerSecond = FixedPoint.multiplyUintByMantissa(_principal, tokenCreditPlans[_controlledToken].creditRateMantissa);
+    uint256 accruedPerSecond = FixedPoint.multiplyUintByMantissa(_principal, _tokenCreditPlans[_controlledToken].creditRateMantissa);
     if (accruedPerSecond == 0) {
       return 0;
     }
@@ -802,7 +802,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   /// @param user The user whose credit should be burned
   /// @param credit The amount of credit to burn
   function _burnCredit(address user, address controlledToken, uint256 credit) internal {
-    tokenCreditBalances[controlledToken][user].balance = uint256(tokenCreditBalances[controlledToken][user].balance).sub(credit).toUint128();
+    _tokenCreditBalances[controlledToken][user].balance = uint256(_tokenCreditBalances[controlledToken][user].balance).sub(credit).toUint128();
 
     emit CreditBurned(user, controlledToken, credit);
   }
@@ -822,20 +822,20 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
 
   function _calculateCreditBalance(address user, address controlledToken, uint256 controlledTokenBalance, uint256 extra) internal view returns (uint256) {
     uint256 newBalance;
-    CreditBalance storage creditBalance = tokenCreditBalances[controlledToken][user];
+    CreditBalance storage creditBalance = _tokenCreditBalances[controlledToken][user];
     if (!creditBalance.initialized) {
       newBalance = 0;
     } else {
-      uint256 credit = calculateAccruedCredit(user, controlledToken, controlledTokenBalance);
+      uint256 credit = _calculateAccruedCredit(user, controlledToken, controlledTokenBalance);
       newBalance = _applyCreditLimit(controlledToken, controlledTokenBalance, uint256(creditBalance.balance).add(credit).add(extra));
     }
     return newBalance;
   }
 
   function _updateCreditBalance(address user, address controlledToken, uint256 newBalance) internal {
-    uint256 oldBalance = tokenCreditBalances[controlledToken][user].balance;
+    uint256 oldBalance = _tokenCreditBalances[controlledToken][user].balance;
 
-    tokenCreditBalances[controlledToken][user] = CreditBalance({
+    _tokenCreditBalances[controlledToken][user] = CreditBalance({
       balance: newBalance.toUint128(),
       timestamp: _currentTime().toUint32(),
       initialized: true
@@ -856,7 +856,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   function _applyCreditLimit(address controlledToken, uint256 controlledTokenBalance, uint256 creditBalance) internal view returns (uint256) {
     uint256 creditLimit = FixedPoint.multiplyUintByMantissa(
       controlledTokenBalance,
-      tokenCreditPlans[controlledToken].creditLimitMantissa
+      _tokenCreditPlans[controlledToken].creditLimitMantissa
     );
     if (creditBalance > creditLimit) {
       creditBalance = creditLimit;
@@ -870,15 +870,15 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   /// @param controlledToken The controlled token that the user holds
   /// @param controlledTokenBalance The user's current balance of the controlled tokens.
   /// @return The credit that has accrued since the last credit update.
-  function calculateAccruedCredit(address user, address controlledToken, uint256 controlledTokenBalance) internal view returns (uint256) {
-    uint256 userTimestamp = tokenCreditBalances[controlledToken][user].timestamp;
+  function _calculateAccruedCredit(address user, address controlledToken, uint256 controlledTokenBalance) internal view returns (uint256) {
+    uint256 userTimestamp = _tokenCreditBalances[controlledToken][user].timestamp;
 
-    if (!tokenCreditBalances[controlledToken][user].initialized) {
+    if (!_tokenCreditBalances[controlledToken][user].initialized) {
       return 0;
     }
 
     uint256 deltaTime = _currentTime().sub(userTimestamp);
-    uint256 creditPerSecond = FixedPoint.multiplyUintByMantissa(controlledTokenBalance, tokenCreditPlans[controlledToken].creditRateMantissa);
+    uint256 creditPerSecond = FixedPoint.multiplyUintByMantissa(controlledTokenBalance, _tokenCreditPlans[controlledToken].creditRateMantissa);
     return deltaTime.mul(creditPerSecond);
   }
 
@@ -886,8 +886,8 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   /// @param user The user whose credit balance should be returned
   /// @return The balance of the users credit
   function balanceOfCredit(address user, address controlledToken) external override onlyControlledToken(controlledToken) returns (uint256) {
-    _accrueCredit(user, controlledToken, IERC20(controlledToken).balanceOf(user), 0);
-    return tokenCreditBalances[controlledToken][user].balance;
+    _accrueCredit(user, controlledToken, IERC20Upgradeable(controlledToken).balanceOf(user), 0);
+    return _tokenCreditBalances[controlledToken][user].balance;
   }
 
   /// @notice Sets the rate at which credit accrues per second.  The credit rate is a fixed point 18 number (like Ether).
@@ -903,7 +903,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     onlyControlledToken(_controlledToken)
     onlyOwner
   {
-    tokenCreditPlans[_controlledToken] = CreditPlan({
+    _tokenCreditPlans[_controlledToken] = CreditPlan({
       creditLimitMantissa: _creditLimitMantissa,
       creditRateMantissa: _creditRateMantissa
     });
@@ -925,8 +925,8 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
       uint128 creditRateMantissa
     )
   {
-    creditLimitMantissa = tokenCreditPlans[controlledToken].creditLimitMantissa;
-    creditRateMantissa = tokenCreditPlans[controlledToken].creditRateMantissa;
+    creditLimitMantissa = _tokenCreditPlans[controlledToken].creditLimitMantissa;
+    creditRateMantissa = _tokenCreditPlans[controlledToken].creditRateMantissa;
   }
 
   /// @notice Calculate the early exit for a user given a withdrawal amount.  The user's credit is taken into account.
@@ -946,7 +946,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
       uint256 creditBurned
     )
   {
-    uint256 controlledTokenBalance = IERC20(controlledToken).balanceOf(from);
+    uint256 controlledTokenBalance = IERC20Upgradeable(controlledToken).balanceOf(from);
     require(controlledTokenBalance >= amount, "PrizePool/insuff-funds");
     _accrueCredit(from, controlledToken, controlledTokenBalance, 0);
     /*
@@ -963,8 +963,8 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     uint256 remainingExitFee = _calculateEarlyExitFeeNoCredit(controlledToken, controlledTokenBalance.sub(amount));
 
     uint256 availableCredit;
-    if (tokenCreditBalances[controlledToken][from].balance >= remainingExitFee) {
-      availableCredit = uint256(tokenCreditBalances[controlledToken][from].balance).sub(remainingExitFee);
+    if (_tokenCreditBalances[controlledToken][from].balance >= remainingExitFee) {
+      availableCredit = uint256(_tokenCreditBalances[controlledToken][from].balance).sub(remainingExitFee);
     }
 
     // Determine amount of credit to burn and amount of fees required
@@ -987,29 +987,30 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
 
   /// @notice Allows the Governor to add Controlled Tokens to the Prize Pool
   /// @param _controlledToken The address of the Controlled Token to add
-  function addControlledToken(address _controlledToken) external override onlyOwner {
+  function addControlledToken(ControlledTokenInterface _controlledToken) external override onlyOwner {
     _addControlledToken(_controlledToken);
   }
 
   /// @notice Adds a new controlled token
   /// @param _controlledToken The controlled token to add.  Cannot be a duplicate.
-  function _addControlledToken(address _controlledToken) internal {
-    require(ControlledToken(_controlledToken).controller() == this, "PrizePool/token-ctrlr-mismatch");
-    _tokens.addAddress(_controlledToken);
+  function _addControlledToken(ControlledTokenInterface _controlledToken) internal {
+    require(_controlledToken.controller() == this, "PrizePool/token-ctrlr-mismatch");
+    _tokens.addAddress(address(_controlledToken));
 
     emit ControlledTokenAdded(_controlledToken);
   }
 
   /// @notice Sets the prize strategy of the prize pool.  Only callable by the owner.
   /// @param _prizeStrategy The new prize strategy
-  function setPrizeStrategy(address _prizeStrategy) external override onlyOwner {
-    _setPrizeStrategy(TokenListenerInterface(_prizeStrategy));
+  function setPrizeStrategy(TokenListenerInterface _prizeStrategy) external override onlyOwner {
+    _setPrizeStrategy(_prizeStrategy);
   }
 
   /// @notice Sets the prize strategy of the prize pool.  Only callable by the owner.
   /// @param _prizeStrategy The new prize strategy
   function _setPrizeStrategy(TokenListenerInterface _prizeStrategy) internal {
     require(address(_prizeStrategy) != address(0), "PrizePool/prizeStrategy-not-zero");
+    require(address(_prizeStrategy).supportsInterface(TokenListenerLibrary.ERC165_INTERFACE_ID_TOKEN_LISTENER), "PrizePool/prizeStrategy-invalid");
     prizeStrategy = _prizeStrategy;
 
     emit PrizeStrategySet(address(_prizeStrategy));
@@ -1053,7 +1054,7 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
     uint256 total = timelockTotalSupply.add(reserveTotalSupply);
     address currentToken = _tokens.start();
     while (currentToken != address(0) && currentToken != _tokens.end()) {
-      total = total.add(IERC20(currentToken).totalSupply());
+      total = total.add(IERC20Upgradeable(currentToken).totalSupply());
       currentToken = _tokens.next(currentToken);
     }
     return total;
@@ -1072,30 +1073,6 @@ abstract contract PrizePool is PrizePoolInterface, YieldSource, OwnableUpgradeSa
   /// @return True if the token is a controlled token, false otherwise
   function _isControlled(address controlledToken) internal view returns (bool) {
     return _tokens.contains(controlledToken);
-  }
-
-  /// @dev Provides information about the current execution context for GSN Meta-Txs.
-  /// @return The payable address of the message sender
-  function _msgSender()
-    internal
-    override(BaseRelayRecipient, ContextUpgradeSafe)
-    virtual
-    view
-    returns (address payable)
-  {
-    return BaseRelayRecipient._msgSender();
-  }
-
-  /// @dev Provides information about the current execution context for GSN Meta-Txs.
-  /// @return The payable address of the message sender
-  function _msgData()
-    internal
-    override(BaseRelayRecipient, ContextUpgradeSafe)
-    virtual
-    view
-    returns (bytes memory)
-  {
-    return BaseRelayRecipient._msgData();
   }
 
   /// @dev Function modifier to ensure usage of tokens controlled by the Prize Pool

@@ -1,4 +1,5 @@
 // features/support/world.js
+const chalk = require('chalk')
 const buidler = require("@nomiclabs/buidler")
 const ethers = require('ethers')
 const ERC20Mintable = require('../../../build/ERC20Mintable.json')
@@ -74,21 +75,8 @@ function PoolEnv() {
   }
 
   this.useMultipleWinnersPrizeStrategy = async function ({ winnerCount }) {
-    const multipleWinnersBuilder = await buidler.deployments.get('MultipleWinnersBuilder')
-    const mw = await buidler.ethers.getContractAt('MultipleWinnersBuilder', multipleWinnersBuilder.address, this.wallets[0])
-    const tx = await mw.createMultipleWinners(this.env.prizeStrategy.address, winnerCount)
-    const receipt = await buidler.ethers.provider.getTransactionReceipt(tx.hash)
-    const events = receipt.logs.map(log => { try { return mw.interface.parseLog(log) } catch (e) {} })
-    const event = events.find(event => event && event.name === 'CreatedMultipleWinners')
-    const newStrategyAddress = event.args.prizeStrategy
-
-    const prizeStrategy = await buidler.ethers.getContractAt('MultipleWinners', newStrategyAddress, this.wallets[0])
-    expect(await prizeStrategy.numberOfWinners()).to.equal(winnerCount)
-    this.env.prizeStrategy = prizeStrategy;
-
-    await this.env.prizePool.setPrizeStrategy(newStrategyAddress)
-
-    debug(`Changed prize strategy to multiple winners`)
+    await this.env.prizeStrategy.setNumberOfWinners(winnerCount)
+    debug(`Changed number of winners to ${winnerCount}`)
   }
 
   this.setCurrentTime = async function (time) {
@@ -105,7 +93,7 @@ function PoolEnv() {
   }
 
   this.prizeStrategy = async function (wallet) {
-    let prizeStrategy = await buidler.ethers.getContractAt('SingleRandomWinnerHarness', this.env.prizeStrategy.address, wallet)
+    let prizeStrategy = await buidler.ethers.getContractAt('MultipleWinnersHarness', this.env.prizeStrategy.address, wallet)
     this._prizeStrategy = prizeStrategy
     return prizeStrategy
   }
@@ -389,6 +377,31 @@ function PoolEnv() {
     await this.startAward()
     await this.completeAward({ token })
   }
+
+  // this.selectWinners = async function ({ token }) {
+
+  //   for (let userIndex = 1; userIndex < 3; userIndex++) {
+  //     let wallet = await this.wallet(userIndex)
+  //     let chance = await this.env.ticket.chanceOf(wallet._address)
+  //     console.log(chalk.green(`User ${userIndex} (${wallet._address}) chances: ${ethers.utils.formatEther(chance)}`))
+  //   }
+
+
+  //   for (let i = 0; i < 600; i += 10) {
+  //     let token = parseInt(i)
+  //     let token2 = parseInt(Math.random() * 200)
+
+  //     let firstWinner = await this.env.ticket.draw(token)
+  //     let secondRandom = ethers.BigNumber.from(ethers.utils.solidityKeccak256(['uint256'], [token.toString()]))
+  //     let secondWinner = await this.env.ticket.draw(secondRandom)
+
+  //     if (firstWinner != secondWinner) {
+  //       console.log(chalk.green(`token ${token} had ${firstWinner} and ${secondWinner}`))
+  //     } else {
+  //       console.log(chalk.dim(`No luck with ${token} and ${secondRandom}`))
+  //     }
+  //   }
+  // }
 
   this.transferTickets = async function ({ user, tickets, to }) {
     let wallet = await this.wallet(user)

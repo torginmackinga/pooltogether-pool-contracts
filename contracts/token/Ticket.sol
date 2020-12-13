@@ -21,13 +21,11 @@ contract Ticket is ControlledToken, TicketInterface {
   /// @param _name The name of the Token
   /// @param _symbol The symbol for the Token
   /// @param _decimals The number of decimals for the Token
-  /// @param _trustedForwarder Address of the Forwarding Contract for GSN Meta-Txs
   /// @param _controller Address of the Controller contract for minting & burning
   function initialize(
     string memory _name,
     string memory _symbol,
     uint8 _decimals,
-    address _trustedForwarder,
     TokenControllerInterface _controller
   )
     public
@@ -35,7 +33,7 @@ contract Ticket is ControlledToken, TicketInterface {
     override
     initializer
   {
-    super.initialize(_name, _symbol, _decimals, _trustedForwarder, _controller);
+    super.initialize(_name, _symbol, _decimals, _controller);
     sortitionSumTrees.createTree(TREE_KEY, MAX_TREE_LEAVES);
   }
 
@@ -47,7 +45,7 @@ contract Ticket is ControlledToken, TicketInterface {
   /// @notice Selects a user using a random number.  The random number will be uniformly bounded to the ticket totalSupply.
   /// @param randomNumber The random number to use to select a user.
   /// @return The winner
-  function draw(uint256 randomNumber) public view override returns (address) {
+  function draw(uint256 randomNumber) external view override returns (address) {
     uint256 bound = totalSupply();
     address selected;
     if (bound == 0) {
@@ -67,6 +65,11 @@ contract Ticket is ControlledToken, TicketInterface {
   /// @param amount Amount of tokens being transferred
   function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override {
     super._beforeTokenTransfer(from, to, amount);
+
+    // optimize: ignore transfers to self
+    if (from == to) {
+      return;
+    }
 
     if (from != address(0)) {
       uint256 fromBalance = balanceOf(from).sub(amount);

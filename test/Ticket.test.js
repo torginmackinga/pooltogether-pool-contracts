@@ -2,6 +2,7 @@ const { deployContract } = require('ethereum-waffle')
 const { deployMockContract } = require('./helpers/deployMockContract')
 const TokenControllerInterface = require('../build/TokenControllerInterface.json')
 const Ticket = require('../build/Ticket.json')
+const chalk = require('chalk')
 
 const { expect } = require('chai')
 const buidler = require('@nomiclabs/buidler')
@@ -21,7 +22,7 @@ describe('Ticket', function() {
     [wallet, wallet2, wallet3, wallet4] = await buidler.ethers.getSigners()
     controller = await deployMockContract(wallet, TokenControllerInterface.abi)    
     ticket = await deployContract(wallet, Ticket, [], overrides)
-    await ticket.initialize("Name", "SYMBOL", 18, AddressZero, controller.address)
+    await ticket.initialize("Name", "SYMBOL", 18, controller.address)
     
     // allow all transfers
     await controller.mock.beforeTokenTransfer.returns()
@@ -40,6 +41,14 @@ describe('Ticket', function() {
 
       expect(await ticket.chanceOf(wallet._address)).to.equal(toWei('80'))
       expect(await ticket.chanceOf(wallet3._address)).to.equal(toWei('20'))
+    })
+
+    it('should do nothing when transferring to self', async () => {
+      await controller.call(ticket, 'controllerMint', wallet._address, toWei('100'))
+      
+      await ticket.transfer(wallet._address, toWei('20'))
+
+      expect(await ticket.chanceOf(wallet._address)).to.equal(toWei('100'))
     })
 
     it('should be correct after burning', async () => {

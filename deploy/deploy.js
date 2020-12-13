@@ -23,11 +23,9 @@ module.exports = async (buidler) => {
   let {
     deployer,
     rng,
-    dai,
-    trustedForwarder,
     adminAccount,
     comptroller,
-    reserve
+    reserveRegistry
   } = await getNamedAccounts()
   const chainId = parseInt(await getChainId(), 10)
   const isLocal = [1, 3, 4, 42].indexOf(chainId) == -1
@@ -51,13 +49,6 @@ module.exports = async (buidler) => {
   await deploy1820(signer)
 
   if (isLocal) {
-    debug("\n  Deploying TrustedForwarder...")
-    const deployResult = await deploy("TrustedForwarder", {
-      from: deployer,
-      skipIfAlreadyDeployed: true
-    });
-    trustedForwarder = deployResult.address
-
     debug("\n  Deploying RNGService...")
     const rngServiceMockResult = await deploy("RNGServiceMock", {
       from: deployer,
@@ -100,7 +91,6 @@ module.exports = async (buidler) => {
 
     // Display Contract Addresses
     debug("\n  Local Contract Deployments;\n")
-    debug("  - TrustedForwarder: ", trustedForwarder)
     debug("  - RNGService:       ", rng)
     debug("  - Dai:              ", daiResult.address)
   }
@@ -123,38 +113,47 @@ module.exports = async (buidler) => {
     if (adminAccount !== deployer) {
       await comptrollerContract.transferOwnership(adminAccount)
     }
+    debug(`  Created new comptroller ${comptrollerAddress}`)
+  } else {
+    debug(`  Using existing comptroller ${comptrollerAddress}`)
   }
 
-  let reserveAddress = reserve
-  // if not set by named config
-  const reserveResult = await deploy("Reserve", {
-    from: deployer,
-    skipIfAlreadyDeployed: true
-  })
-  const reserveContract = await buidler.ethers.getContractAt(
-    "Reserve",
-    reserveResult.address,
-    signer
-  )
-  if (adminAccount !== deployer) {
-    await reserveContract.transferOwnership(adminAccount)
-  }
+  if (!reserveRegistry) {
+    // if not set by named config
+    const reserveResult = await deploy("Reserve", {
+      from: deployer,
+      skipIfAlreadyDeployed: true
+    })
+    const reserveContract = await buidler.ethers.getContractAt(
+      "Reserve",
+      reserveResult.address,
+      signer
+    )
+    if (adminAccount !== deployer) {
+      await reserveContract.transferOwnership(adminAccount)
+    }
 
-  const reserveRegistryResult = await deploy("ReserveRegistry", {
-    contract: 'Registry',
-    from: deployer,
-    skipIfAlreadyDeployed: true
-  })
-  const reserveRegistryContract = await buidler.ethers.getContractAt(
-    "Registry",
-    reserveRegistryResult.address,
-    signer
-  )
-  if (await reserveRegistryContract.lookup() != reserveResult.address) {
-    await reserveRegistryContract.register(reserveResult.address)
-  }
-  if (adminAccount !== deployer) {
-    await reserveRegistryContract.transferOwnership(adminAccount)
+    const reserveRegistryResult = await deploy("ReserveRegistry", {
+      contract: 'Registry',
+      from: deployer,
+      skipIfAlreadyDeployed: true
+    })
+    const reserveRegistryContract = await buidler.ethers.getContractAt(
+      "Registry",
+      reserveRegistryResult.address,
+      signer
+    )
+    if (await reserveRegistryContract.lookup() != reserveResult.address) {
+      await reserveRegistryContract.register(reserveResult.address)
+    }
+    if (adminAccount !== deployer) {
+      await reserveRegistryContract.transferOwnership(adminAccount)
+    }
+
+    reserveRegistry = reserveRegistryResult.address
+    debug(`  Created new reserve registry ${reserveRegistry}`)
+  } else {
+    debug(`  Using existing reserve registry ${reserveRegistry}`)
   }
 
   let permitAndDepositDaiResult
@@ -211,10 +210,17 @@ module.exports = async (buidler) => {
     skipIfAlreadyDeployed: true
   })
 
+  debug("\n  Deploying UnsafeTokenListenerDelegatorProxyFactory...")
+  const unsafeTokenListenerDelegatorProxyFactory = await deploy("UnsafeTokenListenerDelegatorProxyFactory", {
+    from: deployer,
+    skipIfAlreadyDeployed: true
+  })
+
   let multipleWinnersProxyFactoryResult
   debug("\n  Deploying MultipleWinnersProxyFactory...")
   if (isTestEnvironment && !harnessDisabled) {
-    multipleWinnersProxyFactoryResult = await deploy("MultipleWinnersHarnessProxyFactory", {
+    multipleWinnersProxyFactoryResult = await deploy("MultipleWinnersProxyFactory", {
+      contract: 'MultipleWinnersHarnessProxyFactory',
       from: deployer,
       skipIfAlreadyDeployed: true
     })
@@ -225,10 +231,15 @@ module.exports = async (buidler) => {
     })
   }
 
+  debug("\n  Deploying SingleRandomWinnerProxyFactory...")
+  const singleRandomWinnerProxyFactoryResult = await deploy("SingleRandomWinnerProxyFactory", {
+    from: deployer,
+    skipIfAlreadyDeployed: true
+  })
+
   debug("\n  Deploying ControlledTokenBuilder...")
   const controlledTokenBuilderResult = await deploy("ControlledTokenBuilder", {
     args: [
-      trustedForwarder,
       controlledTokenProxyFactoryResult.address,
       ticketProxyFactoryResult.address
     ],
@@ -239,34 +250,8 @@ module.exports = async (buidler) => {
   debug("\n  Deploying MultipleWinnersBuilder...")
   const multipleWinnersBuilderResult = await deploy("MultipleWinnersBuilder", {
     args: [
-      multipleWinnersProxyFactoryResult.address
-    ],
-    from: deployer,
-    skipIfAlreadyDeployed: true
-  })
-
-  debug("\n  Deploying SingleRandomWinnerProxyFactory...")
-  let singleRandomWinnerProxyFactoryResult
-  if (isTestEnvironment && !harnessDisabled) {
-    singleRandomWinnerProxyFactoryResult = await deploy("SingleRandomWinnerProxyFactory", {
-      contract: 'SingleRandomWinnerHarnessProxyFactory',
-      from: deployer,
-      skipIfAlreadyDeployed: true
-    })
-  } else {
-    singleRandomWinnerProxyFactoryResult = await deploy("SingleRandomWinnerProxyFactory", {
-      from: deployer,
-      skipIfAlreadyDeployed: true
-    })
-  }
-
-  debug("\n  Deploying SingleRandomWinnerBuilder...")
-  const singleRandomWinnerBuilderResult = await deploy("SingleRandomWinnerBuilder", {
-    args: [
-      singleRandomWinnerProxyFactoryResult.address,
-      trustedForwarder,
-      controlledTokenProxyFactoryResult.address,
-      ticketProxyFactoryResult.address
+      multipleWinnersProxyFactoryResult.address,
+      controlledTokenBuilderResult.address,
     ],
     from: deployer,
     skipIfAlreadyDeployed: true
@@ -275,22 +260,18 @@ module.exports = async (buidler) => {
   debug("\n  Deploying CompoundPrizePoolBuilder...")
   const compoundPrizePoolBuilderResult = await deploy("CompoundPrizePoolBuilder", {
     args: [
-      reserveRegistryResult.address,
-      trustedForwarder,
-      compoundPrizePoolProxyFactoryResult.address,
-      singleRandomWinnerBuilderResult.address
+      reserveRegistry,
+      compoundPrizePoolProxyFactoryResult.address
     ],
     from: deployer,
     skipIfAlreadyDeployed: true
   })
 
-  debug("\n  Deploying yVaultPrizePoolBuilder...")
-  const yVaultPrizePoolBuilderResult = await deploy("yVaultPrizePoolBuilder", {
+  debug("\n  Deploying VaultPrizePoolBuilder...")
+  const vaultPrizePoolBuilderResult = await deploy("VaultPrizePoolBuilder", {
     args: [
-      reserveRegistryResult.address,
-      trustedForwarder,
-      yVaultPrizePoolProxyFactoryResult.address,
-      singleRandomWinnerBuilderResult.address
+      reserveRegistry,
+      yVaultPrizePoolProxyFactoryResult.address
     ],
     from: deployer,
     skipIfAlreadyDeployed: true
@@ -299,10 +280,20 @@ module.exports = async (buidler) => {
   debug("\n  Deploying StakePrizePoolBuilder...")
   const stakePrizePoolBuilderResult = await deploy("StakePrizePoolBuilder", {
     args: [
-      reserveRegistryResult.address,
-      trustedForwarder,
-      stakePrizePoolProxyFactoryResult.address,
-      singleRandomWinnerBuilderResult.address
+      reserveRegistry,
+      stakePrizePoolProxyFactoryResult.address
+    ],
+    from: deployer,
+    skipIfAlreadyDeployed: true
+  })
+
+  debug("\n  Deploying PoolWithMultipleWinnersBuilder...")
+  const poolWithMultipleWinnersBuilderResult = await deploy("PoolWithMultipleWinnersBuilder", {
+    args: [
+      compoundPrizePoolBuilderResult.address,
+      vaultPrizePoolBuilderResult.address,
+      stakePrizePoolBuilderResult.address,
+      multipleWinnersBuilderResult.address
     ],
     from: deployer,
     skipIfAlreadyDeployed: true
@@ -311,17 +302,17 @@ module.exports = async (buidler) => {
   // Display Contract Addresses
   debug("\n  Contract Deployments Complete!\n")
   debug("  - TicketProxyFactory:             ", ticketProxyFactoryResult.address)
-  debug("  - Reserve:                        ", reserveAddress)
+  debug("  - Reserve Registry:               ", reserveRegistry)
   debug("  - Comptroller:                    ", comptrollerAddress)
   debug("  - CompoundPrizePoolProxyFactory:  ", compoundPrizePoolProxyFactoryResult.address)
+  debug("  - SingleRandomWinnerProxyFactory  ", singleRandomWinnerProxyFactoryResult.address)
   debug("  - ControlledTokenProxyFactory:    ", controlledTokenProxyFactoryResult.address)
-  debug("  - SingleRandomWinnerProxyFactory: ", singleRandomWinnerProxyFactoryResult.address)
   debug("  - ControlledTokenBuilder:         ", controlledTokenBuilderResult.address)
   debug("  - MultipleWinnersBuilder:         ", multipleWinnersBuilderResult.address)
-  debug("  - SingleRandomWinnerBuilder:      ", singleRandomWinnerBuilderResult.address)
   debug("  - CompoundPrizePoolBuilder:       ", compoundPrizePoolBuilderResult.address)
-  debug("  - yVaultPrizePoolBuilder:         ", yVaultPrizePoolBuilderResult.address)
+  debug("  - VaultPrizePoolBuilder:          ", vaultPrizePoolBuilderResult.address)
   debug("  - StakePrizePoolBuilder:          ", stakePrizePoolBuilderResult.address)
+  debug("  - PoolWithMultipleWinnersBuilder: ", poolWithMultipleWinnersBuilderResult.address)
   if (permitAndDepositDaiResult) {
     debug("  - PermitAndDepositDai:            ", permitAndDepositDaiResult.address)
   }

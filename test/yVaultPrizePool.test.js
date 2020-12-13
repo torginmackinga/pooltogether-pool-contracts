@@ -16,8 +16,6 @@ const debug = require('debug')('ptv3:yVaultPrizePool.test')
 
 let overrides = { gasLimit: 20000000 }
 
-const FORWARDER = '0x5f48a3371df0F8077EC741Cc2eB31c84a4Ce332a'
-
 describe('yVaultPrizePool', function() {
   let wallet, wallet2
 
@@ -41,6 +39,11 @@ describe('yVaultPrizePool', function() {
     vault = await deployContract(wallet, yVaultMock, [erc20token.address], overrides)
 
     prizeStrategy = await deployMockContract(wallet, TokenListenerInterface.abi, overrides)
+
+    await prizeStrategy.mock.supportsInterface.returns(true)
+    await prizeStrategy.mock.supportsInterface.withArgs('0xffffffff').returns(false)
+
+
     comptroller = await deployMockContract(wallet, TokenListenerInterface.abi, overrides)
 
     debug('deploying yVaultPrizePoolHarness...')
@@ -49,8 +52,7 @@ describe('yVaultPrizePool', function() {
     ticket = await deployMockContract(wallet, ControlledToken.abi, overrides)
     await ticket.mock.controller.returns(prizePool.address)
 
-    initializeTxPromise = prizePool['initialize(address,address,address[],uint256,uint256,address,uint256)'](
-      FORWARDER,
+    initializeTxPromise = prizePool['initialize(address,address[],uint256,uint256,address,uint256)'](
       comptroller.address,
       [ticket.address],
       poolMaxExitFee,

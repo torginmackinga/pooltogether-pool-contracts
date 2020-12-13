@@ -19,4 +19,8 @@ contract SingleRandomWinnerHarness is SingleRandomWinner {
     rngRequest.lockBlock = lockBlock;
   }
 
+  function distribute(uint256 randomNumber) external {
+    _distribute(randomNumber);
+  }
+
 }

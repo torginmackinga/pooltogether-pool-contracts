@@ -2,16 +2,16 @@
 
 pragma solidity >=0.6.0 <0.7.0;
 
-import "@openzeppelin/contracts-ethereum-package/contracts/Initializable.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/math/SafeMath.sol";
-import "@openzeppelin/contracts-ethereum-package/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts-upgradeable/proxy/Initializable.sol";
+import "@openzeppelin/contracts-upgradeable/math/SafeMathUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/IERC20Upgradeable.sol";
 
 import "../../external/yearn/yVaultInterface.sol";
 import "../PrizePool.sol";
 
 /// @title Prize Pool for yEarn's yVaults
 contract yVaultPrizePool is PrizePool {
-  using SafeMath for uint256;
+  using SafeMathUpgradeable for uint256;
 
   event yVaultPrizePoolInitialized(address indexed vault);
   event ReserveRateMantissaSet(uint256 reserveRateMantissa);
@@ -23,15 +23,13 @@ contract yVaultPrizePool is PrizePool {
   uint256 public reserveRateMantissa;
 
   /// @notice Initializes the Prize Pool and Yield Service with the required contract connections
-  /// @param _trustedForwarder Address of the Forwarding Contract for GSN Meta-Txs
   /// @param _controlledTokens Array of addresses for the Ticket and Sponsorship Tokens controlled by the Prize Pool
   /// @param _maxExitFeeMantissa The maximum exit fee size, relative to the withdrawal amount
   /// @param _maxTimelockDuration The maximum length of time the withdraw timelock could be
   /// @param _vault Address of the yEarn yVaultInterface
   function initialize (
-    address _trustedForwarder,
     RegistryInterface _reserveRegistry,
-    address[] memory _controlledTokens,
+    ControlledTokenInterface[] memory _controlledTokens,
     uint256 _maxExitFeeMantissa,
     uint256 _maxTimelockDuration,
     yVaultInterface _vault,
@@ -41,7 +39,6 @@ contract yVaultPrizePool is PrizePool {
     initializer
   {
     PrizePool.initialize(
-      _trustedForwarder,
       _reserveRegistry,
       _controlledTokens,
       _maxExitFeeMantissa,
@@ -75,7 +72,7 @@ contract yVaultPrizePool is PrizePool {
   /// @dev Allows a user to supply asset tokens in exchange for yield-bearing tokens
   /// to be held in escrow by the Yield Service
   function _supply(uint256) internal override {
-    IERC20 assetToken = _token();
+    IERC20Upgradeable assetToken = _token();
     uint256 total = assetToken.balanceOf(address(this));
     assetToken.approve(address(vault), total);
     vault.deposit(total);
@@ -92,7 +89,7 @@ contract yVaultPrizePool is PrizePool {
   /// @param _externalToken The address of the token to check
   /// @return True if the token may be awarded, false otherwise
   function _canAwardExternal(address _externalToken) internal override view returns (bool) {
-    return _externalToken != address(vault) && _externalToken != vault.token();
+    return _externalToken != address(vault) && _externalToken != address(vault.token());
   }
 
   /// @dev Allows a user to redeem yield-bearing tokens in exchange for the underlying
@@ -100,7 +97,7 @@ contract yVaultPrizePool is PrizePool {
   /// @param amount The amount of underlying tokens to be redeemed
   /// @return The actual amount of tokens transferred
   function _redeem(uint256 amount) internal override returns (uint256) {
-    IERC20 token = _token();
+    IERC20Upgradeable token = _token();
 
     require(_balance() >= amount, "yVaultPrizePool/insuff-liquidity");
 
@@ -124,7 +121,7 @@ contract yVaultPrizePool is PrizePool {
     uint256 amountWithdrawn = postBalance.sub(preBalance);
     uint256 amountRedeemable = (amountWithdrawn < amount) ? amountWithdrawn : amount;
 
-    // Redeposit any asset funds that were removed premptively for fees
+    // Redeposit any asset funds that were removed preemptively for fees
     if (postBalance > amountRedeemable) {
       _supplySpecific(postBalance.sub(amountRedeemable));
     }
@@ -150,7 +147,7 @@ contract yVaultPrizePool is PrizePool {
 
   /// @dev Gets the underlying asset token used by the Yield Service
   /// @return A reference to the interface of the underling asset token
-  function _token() internal override view returns (IERC20) {
-    return IERC20(vault.token());
+  function _token() internal override view returns (IERC20Upgradeable) {
+    return IERC20Upgradeable(vault.token());
   }
 }

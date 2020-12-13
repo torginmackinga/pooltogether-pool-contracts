@@ -10,9 +10,8 @@ contract PrizePoolHarness is PrizePool {
   YieldSourceStub stubYieldSource;
 
   function initializeAll(
-    address _trustedForwarder,
     RegistryInterface _reserveRegistry,
-    address[] memory _controlledTokens,
+    ControlledTokenInterface[] memory _controlledTokens,
     uint256 _maxExitFeeMantissa,
     uint256 _maxTimelockDuration,
     YieldSourceStub _stubYieldSource
@@ -20,7 +19,6 @@ contract PrizePoolHarness is PrizePool {
     public
   {
     PrizePool.initialize(
-      _trustedForwarder,
       _reserveRegistry,
       _controlledTokens,
       _maxExitFeeMantissa,
@@ -53,7 +51,7 @@ contract PrizePoolHarness is PrizePool {
     return stubYieldSource.canAwardExternal(_externalToken);
   }
 
-  function _token() internal override view returns (IERC20) {
+  function _token() internal override view returns (IERC20Upgradeable) {
     return stubYieldSource.token();
   }
 
