@@ -19,25 +19,26 @@ contract TimeMintedToken is ERC20Upgradeable, ERC20CappedUpgradeable {
 
   address private _mintToAddress;
   uint32 private _timestamp;
-  uint32 private _dripRatePerSecond;
+  uint256 private _dripRatePerSecond;
   uint256 private _totalMinted;
-  uint256 private _rateAdjustment;
-  uint32 private _rateAdjustmentThreshold;
+  uint256 private _rateAdjustmentMultiplierMantissa;
+  uint256 private _rateAdjustmentThreshold;
 
   ///@notice when the dripRate is changed
   event DripRateChanged(
-    uint32 oldDripRatePerSecond,
-    uint32 newDripRatePerSecond
+    uint256 newDripRatePerSecond,
+    uint256 nextThreshold
   );
+
 
 function initialize(string memory name_, 
   string memory symbol_, 
   uint256 cap_,
   address mintToAddress_,
-  uint32 dripRatePerSecond_,
+  uint256 dripRatePerSecond_,
   uint256 rateAdjustmentNumerator_,
   uint256 rateAdjustmentDenominator_,
-  uint32 rateAdjustmentThreshold_
+  uint256 rateAdjustmentThreshold_
   ) initializer public{
   __TimeMintedToken_init(
     name_,
@@ -56,20 +57,21 @@ function initialize(string memory name_,
   string memory symbol_, 
   uint256 cap_,
   address mintToAddress_,
-  uint32 dripRatePerSecond_,
+  uint256 dripRatePerSecond_,
   uint256 rateAdjustmentNumerator_,
   uint256 rateAdjustmentDenominator_,
-  uint32 rateAdjustmentThreshold_
+  uint256 rateAdjustmentThreshold_
   ) 
   internal initializer {
   __ERC20_init_unchained(name_,symbol_);
   __ERC20Capped_init_unchained(cap_) ;
 
   _mintToAddress = mintToAddress_;
-  _dripRatePerSecond = dripRatePerSecond_;
-  emit DripRateChanged(0,dripRatePerSecond_);
-  _rateAdjustment = FixedPoint.calculateMantissa(rateAdjustmentNumerator_,rateAdjustmentDenominator_);
   _rateAdjustmentThreshold = rateAdjustmentThreshold_;
+  _dripRatePerSecond = dripRatePerSecond_;
+  emit DripRateChanged(_dripRatePerSecond,_rateAdjustmentThreshold);
+  _rateAdjustmentMultiplierMantissa = FixedPoint.calculateMantissa(rateAdjustmentNumerator_,rateAdjustmentDenominator_);
+  
   }
 
   //TODO: getters, events, change dripRate, change mintToAddress?
@@ -79,7 +81,7 @@ function initialize(string memory name_,
     return _mintToAddress;
   }
 
-  function dripRatePerSecond() external view returns (uint32){
+  function dripRatePerSecond() external view returns (uint256){
     return _dripRatePerSecond;
   }
 
@@ -91,14 +93,16 @@ function initialize(string memory name_,
     return _totalMinted;
   }
 
-  function rateAdjustmentThreshold() external view returns (uint32){
+  function rateAdjustmentThreshold() external view returns (uint256){
     return _rateAdjustmentThreshold;
   }
   /// @notice Mints all available Tokens and sends them to the mintToAddress
   function mint() external {
     uint256 currentTime = _currentTime();
     //is explicitly calling the super contracts good practice?
-    _mint(_mintToAddress, _drip(currentTime, ERC20CappedUpgradeable.cap().sub(ERC20Upgradeable.totalSupply())));
+    uint256 newTokens = _drip(currentTime, ERC20CappedUpgradeable.cap().sub(ERC20Upgradeable.totalSupply()));
+    _totalMinted = _totalMinted.add(newTokens);
+    _mint(_mintToAddress, newTokens);
   }
 
   
@@ -130,10 +134,12 @@ function initialize(string memory name_,
     return newTokens;
   }
 
-  ///@notice adjust dripRate after a certain number of coins have been created.
+  ///@notice adjust dripRate after a certain number of coins have been created and update Threshold.
   function _adjustDripRate() internal{
     if(_totalMinted > _rateAdjustmentThreshold){
-      //_dripRatePerSecond = 
+      _dripRatePerSecond = _dripRatePerSecond.mul(_rateAdjustmentMultiplierMantissa);
+      _rateAdjustmentThreshold.add(_rateAdjustmentThreshold.mul(_rateAdjustmentMultiplierMantissa));
+      emit DripRateChanged(_dripRatePerSecond,_rateAdjustmentThreshold);
     }
   }
 
@@ -143,10 +149,10 @@ function initialize(string memory name_,
     return block.timestamp;
   }
 
-  function _mint(address account, uint256 amount) internal virtual override(ERC20Upgradeable) {
+  /*function _mint(address account, uint256 amount) internal virtual override(ERC20Upgradeable) {
         _totalMinted = _totalMinted.add(amount);
         ERC20Upgradeable._mint(account,amount);
-    }
+    }*/
 
   function _beforeTokenTransfer(address from, address to, uint256 amount) internal virtual override(ERC20CappedUpgradeable,ERC20Upgradeable) {
         ERC20CappedUpgradeable._beforeTokenTransfer(from, to, amount);
